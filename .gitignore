@@ -12,3 +12,9 @@ NETWORK_PLAN.md
 
 # Public IEEE vendor registry (3.8 MB). Loaded automatically from beside the script.
 oui.csv
+
+# Web app: its scan history is real network data. Its own launcher and
+# template are source, so they are excepted from the *.bat / *.html rules.
+web/scans/
+!web/run.bat
+!web/templates/*.html

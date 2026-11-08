@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Peek</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c2128;
+  --border: #30363d;
+  --fg: #c9d1d9;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-hover: #79b8ff;
+  --danger: #f85149;
+  --warn: #d29922;
+  --success: #3fb950;
+  --console: #010409;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--fg); margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 32px 24px 64px;
+  max-width: 1100px;
+  margin-inline: auto;
+  line-height: 1.5;
+}
+header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; gap: 12px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+h1 .glyph { color: var(--accent); }
+.subtitle { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; }
+.panel h3 { margin: 0 0 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+
+.controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+button {
+  background: var(--accent); color: #0d1117; border: none;
+  padding: 9px 18px; border-radius: 6px; font-weight: 600; font-size: 14px;
+  cursor: pointer; transition: background 0.1s ease;
+}
+button:hover:not(:disabled) { background: var(--accent-hover); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.danger { background: var(--danger); color: #fff; }
+button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+button.ghost:hover:not(:disabled) { background: var(--surface-2); }
+
+#statusLine { color: var(--muted); font-size: 13px; }
+.pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); margin-right: 8px; vertical-align: middle; animation: pulse 1.4s ease-in-out infinite; }
+.dot-ok { background: var(--success); animation: none; }
+.dot-paused { background: var(--warn); }
+@keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+/* progress */
+.progress-wrap { margin-top: 14px; display: none; }
+.progress-track { height: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #a371f7); transition: width 0.3s ease; }
+.progress-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+/* config */
+.cfg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.cfg-grid label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.cfg-grid select, .cfg-grid input[type=number] {
+  width: 100%; background: var(--console); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font-size: 13px;
+}
+.cfg-check { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 22px; }
+.scope-note { font-size: 12px; color: var(--muted); margin-top: 12px; border-left: 2px solid var(--border); padding-left: 10px; }
+.scope-note.warn { color: var(--warn); border-left-color: var(--warn); }
+
+#log {
+  background: var(--console); border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px 14px; height: 320px; overflow-y: auto;
+  font-family: "Cascadia Code", Consolas, monospace; font-size: 12px;
+  line-height: 1.55; white-space: pre-wrap; color: #b1bac4;
+}
+#log:empty::before { content: "(scan output will appear here)"; color: var(--muted); }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
+.stat b { display: block; font-size: 1.7rem; color: var(--accent); line-height: 1.2; }
+.stat span { font-size: 11px; color: var(--muted); }
+
+.tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.tab { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; font-weight: 500; }
+.tab.active { background: var(--surface-2); color: var(--fg); border-color: var(--accent); }
+
+table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.data th, table.data td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+table.data th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+table.data tbody tr:hover { background: var(--surface-2); }
+.mono { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; }
+.tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 999px; font-weight: 700; }
+.tag.ours { background: rgba(63,185,80,0.15); color: var(--success); border: 1px solid var(--success); }
+.tag.nearby { background: rgba(139,148,158,0.15); color: var(--muted); border: 1px solid var(--muted); }
+td.ports { max-width: 260px; line-height: 1.9; }
+.port { display: inline-block; padding: 1px 6px; border-radius: 4px; font-family: ui-monospace, Consolas, monospace; font-size: 11px; background: rgba(88,166,255,0.12); color: var(--accent); border: 1px solid rgba(88,166,255,0.4); cursor: help; }
+.port.risky { background: rgba(248,81,73,0.15); color: var(--danger); border-color: var(--danger); }
+td .hint { margin: 2px 0 0; font-size: 11px; }
+.sig-track { display: inline-block; width: 54px; height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
+.sig-fill { display: block; height: 100%; background: #a371f7; }
+
+.result-links { display: flex; gap: 16px; margin-bottom: 12px; font-size: 13px; flex-wrap: wrap; }
+.result-links a { color: var(--accent); text-decoration: none; }
+.result-links a:hover { text-decoration: underline; }
+iframe { width: 100%; height: 640px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+
+ul.scan-list { list-style: none; padding: 0; margin: 0; }
+ul.scan-list li { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+ul.scan-list li:last-child { border-bottom: none; }
+ul.scan-list .id { font-family: "Cascadia Code", monospace; }
+ul.scan-list .actions a, ul.scan-list .actions button { margin-left: 12px; font-size: 12px; color: var(--accent); background: transparent; border: none; padding: 0; cursor: pointer; text-decoration: none; }
+ul.scan-list .actions a:hover, ul.scan-list .actions button:hover { text-decoration: underline; }
+ul.scan-list .actions .del { color: var(--danger); }
+footer { color: var(--muted); font-size: 12px; margin-top: 24px; text-align: center; }
+.hint { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+.finding { border: 1px solid var(--border); border-left-width: 4px; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface-2); }
+.finding.danger { border-left-color: var(--danger); }
+.finding.warning { border-left-color: var(--warn); }
+.finding.info { border-left-color: var(--accent); }
+.finding-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+.tag.danger { background: rgba(248,81,73,0.15); color: var(--danger); border: 1px solid var(--danger); }
+.tag.warning { background: rgba(210,153,34,0.15); color: var(--warn); border: 1px solid var(--warn); }
+.tag.info { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid var(--accent); }
+ul.evidence { margin: 8px 0 0 18px; padding: 0; font-size: 12px; color: var(--muted); }
+ul.evidence li { margin: 2px 0; }
+.stat.alert b { color: var(--danger); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="glyph">⌬</span> Network Peek</h1>
+  <span id="statusLine"></span>
+</header>
+<p class="subtitle">A little look at your network whenever you like.</p>
+
+<div class="panel">
+  <h3>Scan</h3>
+  <div class="controls">
+    <button id="scanBtn">Scan Now</button>
+    <button id="pauseBtn" class="ghost" style="display:none;">Pause</button>
+    <button id="stopBtn" class="danger" style="display:none;">Stop</button>
+    <button id="resetBtn" title="Restore all settings to defaults. Hold Shift to also delete every saved scan.">Reset</button>
+    <span id="elapsed" style="color: var(--muted); font-size: 13px;"></span>
+  </div>
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="progress-meta">
+      <span id="progressStage">starting…</span>
+      <span id="progressPct">0%</span>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Scope &amp; Options</h3>
+  <div class="cfg-grid">
+    <div>
+      <label for="cfgScope">Scope</label>
+      <select id="cfgScope">
+        <option value="attached">Attached — our networks only</option>
+        <option value="routed">Routed — also via a router</option>
+        <option value="wide">Wide — includes ranges that aren't ours</option>
+      </select>
+    </div>
+    <div>
+      <label for="cfgMode">Mode</label>
+      <select id="cfgMode">
+        <option value="all">LAN + wireless</option>
+        <option value="lan">LAN only</option>
+        <option value="wifi">Wireless only</option>
+      </select>
+    </div>
+    <div>
+      <label for="cfgThreads">Threads</label>
+      <input type="number" id="cfgThreads" min="1" max="200">
+    </div>
+    <div>
+      <label for="cfgTimeout">Probe timeout (s)</label>
+      <input type="number" id="cfgTimeout" min="1" max="30">
+    </div>
+    <div class="cfg-check"><input type="checkbox" id="cfgVirtual"><label for="cfgVirtual" style="margin:0">Include virtual adapters</label></div>
+    <div class="cfg-check"><input type="checkbox" id="cfgVpn"><label for="cfgVpn" style="margin:0">Include VPN / overlay</label></div>
+  </div>
+  <div class="scope-note" id="scopeNote"></div>
+
+  <h3>Service probing</h3>
+  <div class="cfg-grid">
+    <div class="cfg-check"><input type="checkbox" id="cfgProbe"><label for="cfgProbe" style="margin:0">Probe devices for open ports</label></div>
+    <div>
+      <label for="cfgProbeDepth">Depth</label>
+      <select id="cfgProbeDepth">
+        <option value="quick">Quick — 10 ports</option>
+        <option value="standard">Standard — 16 ports</option>
+        <option value="deep">Deep — 315 ports</option>
+        <option value="full">Full — 1270 ports</option>
+      </select>
+    </div>
+    <div>
+      <label for="cfgProbeSelect">Which devices</label>
+      <select id="cfgProbeSelect">
+        <option value="silent">Silent — announced nothing</option>
+        <option value="unidentified">Unidentified — also unknown/generic</option>
+        <option value="new">New since the last scan</option>
+        <option value="all">All devices</option>
+      </select>
+    </div>
+    <div>
+      <label for="cfgProbeNets">Networks (blank = all)</label>
+      <input type="text" id="cfgProbeNets" placeholder="192.168.2.0/24, attached, new">
+    </div>
+    <div class="cfg-check"><input type="checkbox" id="cfgProbeBanners"><label for="cfgProbeBanners" style="margin:0">Read service banners</label></div>
+  </div>
+  <div class="scope-note" id="probeNote"></div>
+</div>
+
+<div class="panel" id="logPanel" style="display:none;">
+  <h3>Live Log</h3>
+  <div id="log"></div>
+</div>
+
+<div class="panel" id="resultPanel" style="display:none;">
+  <h3>Latest Result</h3>
+  <div class="stats" id="stats"></div>
+  <div class="tabs">
+    <button class="tab active" data-view="findings">Findings</button>
+    <button class="tab" data-view="ours">Our devices</button>
+    <button class="tab" data-view="nearby">Nearby devices</button>
+    <button class="tab" data-view="wifiOurs">Our wireless</button>
+    <button class="tab" data-view="wifiNearby">Nearby wireless</button>
+    <button class="tab" data-view="scope">Scope</button>
+    <button class="tab" data-view="dash">Full dashboard</button>
+  </div>
+  <div id="viewHost"></div>
+</div>
+
+{% if scans %}
+<div class="panel">
+  <h3>Past Scans</h3>
+  <ul class="scan-list" id="scanList">
+    {% for s in scans %}
+    <li data-id="{{ s }}">
+      <span class="id">{{ s }}</span>
+      <span class="actions">
+        <a href="/scan/{{ s }}/dashboard" target="_blank">dashboard</a>
+        <a href="/scan/{{ s }}/diagram">diagram</a>
+        <a href="/scan/{{ s }}/diagram?filtered=1">diagram (filtered)</a>
+        <a href="/scan/{{ s }}/results.json" target="_blank">json</a>
+        <a href="/scan/{{ s }}/log" target="_blank">log</a>
+        <button class="del" data-del="{{ s }}">delete</button>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<footer>localhost:7890 · scans saved to <code>./scans/</code></footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const cfgIds = {
+  scan_scope: "cfgScope", scan_mode: "cfgMode",
+  scan_threads: "cfgThreads", scan_timeout: "cfgTimeout",
+  include_virtual: "cfgVirtual", include_vpn: "cfgVpn",
+  identify_silent: "cfgProbe", probe_depth: "cfgProbeDepth",
+  probe_select: "cfgProbeSelect", probe_banners: "cfgProbeBanners",
+};
+const serverConfig = {{ config | tojson }};
+
+let es = null, startedAt = null, timerId = null;
+let lastResults = null, lastScanId = null, currentView = "ours";
+
+/* ---------- config ---------- */
+function loadConfig(cfg) {
+  for (const [key, id] of Object.entries(cfgIds)) {
+    const el = $(id);
+    if (!el || cfg[key] === undefined) continue;
+    if (el.type === "checkbox") el.checked = !!cfg[key];
+    else el.value = cfg[key];
+  }
+  // probe_nets is a list server-side and a comma-separated field here.
+  if (Array.isArray(cfg.probe_nets)) $("cfgProbeNets").value = cfg.probe_nets.join(", ");
+  updateScopeNote();
+  updateProbeNote();
+}
+function readConfig() {
+  const out = {};
+  for (const [key, id] of Object.entries(cfgIds)) {
+    const el = $(id);
+    if (!el) continue;
+    out[key] = el.type === "checkbox" ? el.checked
+             : (el.type === "number" ? Number(el.value) : el.value);
+  }
+  out.probe_nets = $("cfgProbeNets").value
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  return out;
+}
+function updateScopeNote() {
+  const scope = $("cfgScope").value;
+  const note = $("scopeNote");
+  note.classList.toggle("warn", scope === "wide");
+  if (scope === "attached") {
+    note.textContent = "Probes only networks this machine holds an address on. Nearby wireless is still observed passively — listening to beacons is not contacting anyone.";
+  } else if (scope === "routed") {
+    note.textContent = "Adds networks reachable through a router, as reported by the routing table. Still only networks your host can justify a route to.";
+  } else {
+    note.textContent = "Wide sends probes to addresses that are NOT on your networks. Only use this where you have authority over those ranges — otherwise leave it on Attached.";
+  }
+}
+$("cfgScope").addEventListener("change", updateScopeNote);
+
+/* Probing is the loudest thing this tool does, so the note says what each
+   depth actually costs rather than leaving the operator to find out. The
+   'exhaustive' tier is intentionally not offered here — the CLI gates it
+   behind --i-have-permission and the UI must not be a way around that. */
+const PROBE_COST = {
+  quick:    ["10 ports per device", "Fast. Answers 'what kind of thing is this'."],
+  standard: ["16 ports per device", "The long-standing default. Seconds per device."],
+  deep:     ["315 ports per device", "Finds embedded, NVR, NAS and printer services. Tens of seconds per device."],
+  full:     ["1270 ports per device", "Every privileged port plus common high ports. A minute or more per device, and clearly a port scan in any firewall log."],
+};
+function updateProbeNote() {
+  const on = $("cfgProbe").checked;
+  const depth = $("cfgProbeDepth").value;
+  const note = $("probeNote");
+  // The sub-controls stay enabled even when probing is off, so that changing
+  // one can switch probing on. Disabling them would make the setting you want
+  // unreachable from the state you are in.
+  note.classList.toggle("warn", on && (depth === "full" || depth === "deep"));
+  if (!on) {
+    note.textContent = "Off. Devices are identified only from what they announce themselves — mDNS, SSDP and WS-Discovery. Nothing is sent to them.";
+    return;
+  }
+  const [cost, detail] = PROBE_COST[depth] || PROBE_COST.standard;
+  let text = `Opens TCP connections to ${cost}. ${detail}`;
+  if ($("cfgProbeBanners").checked) {
+    text += " Banner reading also reads what each open service says for itself; on HTTP and HTTPS ports it sends one HEAD request.";
+  }
+  note.textContent = text;
+}
+$("cfgProbe").addEventListener("change", updateProbeNote);
+
+/* Touching any probe setting means you want probing — matching the CLI, where
+   naming --probe-depth turns it on. Without this, changing Depth to "deep"
+   while the enable box is unticked does nothing at all, which is impossible
+   to distinguish from a deep scan that finished instantly. */
+for (const id of ["cfgProbeDepth", "cfgProbeSelect", "cfgProbeNets", "cfgProbeBanners"]) {
+  $(id).addEventListener("change", () => {
+    if (!$("cfgProbe").checked) $("cfgProbe").checked = true;
+    updateProbeNote();
+  });
+}
+
+/* ---------- timer ---------- */
+const fmt = (ms) => {
+  const s = Math.floor(ms / 1000), m = Math.floor(s / 60);
+  return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+};
+function startTimer(from) {
+  startedAt = from || Date.now();
+  clearInterval(timerId);
+  timerId = setInterval(() => {
+    $("elapsed").textContent = `elapsed: ${fmt(Date.now() - startedAt)}`;
+  }, 1000);
+}
+
+/* ---------- state ---------- */
+function setRunning(running, paused) {
+  $("scanBtn").disabled = running;
+  $("stopBtn").style.display = running ? "inline-block" : "none";
+  $("pauseBtn").style.display = running ? "inline-block" : "none";
+  $("pauseBtn").textContent = paused ? "Resume" : "Pause";
+  $("progressWrap").style.display = running ? "block" : "none";
+  if (running) {
+    $("logPanel").style.display = "block";
+    $("statusLine").innerHTML = paused
+      ? '<span class="pulse dot-paused"></span>paused'
+      : '<span class="pulse"></span>scanning…';
+  } else {
+    clearInterval(timerId);
+    $("statusLine").innerHTML = '<span class="pulse dot-ok"></span>idle';
+  }
+}
+function setProgress(stage, pct) {
+  $("progressBar").style.width = `${pct}%`;
+  $("progressPct").textContent = `${pct}%`;
+  $("progressStage").textContent = stage || "";
+}
+function appendLog(line) {
+  const el = $("log");
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.textContent += line + "\n";
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- rendering ---------- */
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function ipKey(ip) {
+  const p = String(ip).split(".").map(Number);
+  return p.length === 4 && p.every(n => !isNaN(n)) ? p[0]*2**24 + p[1]*2**16 + p[2]*256 + p[3] : Infinity;
+}
+
+/* Ports whose presence is worth a second look rather than just a note:
+   cleartext logins, remote desktops, and databases that historically ship
+   with no authentication at all. */
+const RISKY_PORTS = new Set([21, 23, 2323, 445, 3389, 5900, 6379, 11211, 9200, 27017]);
+
+function portChips(d) {
+  const ports = d.ports_open || [];
+  if (!ports.length) return '<span class="hint">—</span>';
+  const banners = d.banners || {};
+  return ports.map(p => {
+    const banner = banners[String(p)] || "";
+    const title = `${p}/tcp` + (banner ? ` — ${banner}` : "");
+    return `<span class="port${RISKY_PORTS.has(p) ? " risky" : ""}" title="${esc(title)}">${p}</span>`;
+  }).join(" ");
+}
+
+function deviceTable(list) {
+  if (!list.length) return '<p class="hint">Nothing here.</p>';
+  // The ports column only appears when a probe actually ran — an empty
+  // column on every row would just be noise for the common case.
+  const anyPorts = list.some(d => (d.ports_open || []).length);
+  const rows = list.slice().sort((a, b) => ipKey(a.ip) - ipKey(b.ip)).map(d => `
+    <tr>
+      <td class="mono">${esc(d.ip)}</td>
+      <td>${esc(d.hostname || "—")}${d.model ? `<div class="hint mono">${esc(d.model)}</div>` : ""}</td>
+      <td class="mono">${esc(d.mac || "—")}</td>
+      <td>${esc(d.vendor && d.vendor !== "Unknown" ? d.vendor : "—")}</td>
+      <td>${esc(d.os_family !== "unknown" ? d.os_family : "—")}</td>
+      ${anyPorts ? `<td class="ports">${portChips(d)}</td>` : ""}
+      <td>${esc(d.discovered_via || "—")}${d.neighbor_state ? " · " + esc(d.neighbor_state.toLowerCase()) : ""}</td>
+      <td><span class="tag ${d.ownership === "ours" ? "ours" : "nearby"}">${esc(d.ownership)}</span></td>
+    </tr>`).join("");
+  return `<table class="data"><thead><tr>
+    <th>Address</th><th>Hostname</th><th>MAC</th><th>Vendor</th><th>OS</th>${anyPorts ? "<th>Open ports</th>" : ""}<th>Found via</th><th></th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function wifiTable(list) {
+  if (!list.length) return '<p class="hint">Nothing here.</p>';
+  const byRadio = {};
+  list.forEach(n => (byRadio[n.physical_radio] ||= []).push(n));
+  return Object.entries(byRadio)
+    .sort((a, b) => Math.max(...b[1].map(x => x.signal_percent)) - Math.max(...a[1].map(x => x.signal_percent)))
+    .map(([radio, nets]) => {
+      const ssids = [...new Set(nets.map(n => n.display_name))].join(", ");
+      const rows = nets.slice().sort((a, b) => b.signal_percent - a.signal_percent).map(n => `
+        <tr>
+          <td>${esc(n.display_name)}</td>
+          <td class="mono">${esc(n.bssid)}</td>
+          <td><span class="sig-track"><span class="sig-fill" style="width:${Math.max(0, Math.min(100, n.signal_percent))}%"></span></span>${n.signal_percent}%</td>
+          <td>${esc(n.band)} · ch${n.channel}</td>
+          <td>${esc(n.radio_type || "—")}</td>
+          <td>${esc(n.authentication || "—")}</td>
+          <td>${[n.is_virtual_bssid && "virtual", n.is_hidden && "hidden", n.is_open && "OPEN"].filter(Boolean).join(" · ") || "—"}</td>
+        </tr>`).join("");
+      return `<p class="hint">📻 radio <span class="mono">${esc(radio)}</span> — ${nets.length} BSSID(s): ${esc(ssids)}</p>
+        <table class="data" style="margin-bottom:18px"><thead><tr>
+        <th>SSID</th><th>BSSID</th><th>Signal</th><th>Band</th><th>Radio</th><th>Auth</th><th>Flags</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+    }).join("");
+}
+
+function scopeTable(r) {
+  const swept = new Set((r.sweep_targets || []).map(t => t.cidr));
+  const rows = (r.interfaces || []).map(i => `
+    <tr>
+      <td>${esc(i.alias)}</td>
+      <td class="mono">${esc(i.ip)}/${i.prefix_length}</td>
+      <td>${esc(i.kind)}</td>
+      <td class="mono">${esc(i.network || "—")}</td>
+      <td class="mono">${esc(i.gateway || "—")}</td>
+      <td><span class="tag ${swept.has(i.network) ? "ours" : "nearby"}">${swept.has(i.network) ? "swept" : "observed only"}</span></td>
+    </tr>`).join("");
+  return `<p class="hint">Read from this host's live adapter and routing tables. No range is probed unless it is marked swept.</p>
+    <table class="data"><thead><tr>
+    <th>Interface</th><th>Address</th><th>Kind</th><th>Network</th><th>Gateway</th><th>Scope</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderStats(r) {
+  const s = r.stats;
+  const alerts = (s.findings_critical || 0) + (s.findings_warning || 0);
+  $("stats").innerHTML = [
+    [alerts, "critical + warning", alerts > 0],
+    [s.devices_ours, "our devices", false],
+    [s.devices_nearby, "nearby devices", false],
+    [s.subnets, "subnets", false],
+    [s.wifi_ours, "our BSSIDs", false],
+    [s.wifi_nearby, "nearby BSSIDs", false],
+    [r.scan_time + "s", "duration", false],
+  ].map(([v, l, alert]) =>
+    `<div class="stat${alert ? " alert" : ""}"><b>${esc(v)}</b><span>${esc(l)}</span></div>`
+  ).join("");
+}
+
+function findingsList(items) {
+  if (!items.length) return '<p class="hint">Nothing flagged.</p>';
+  const icon = { critical: "🔴", warning: "🟠", info: "🔵" };
+  const cls  = { critical: "danger", warning: "warning", info: "info" };
+  return '<p class="hint">Derived from beacons the adapter had already received and from this host\'s own neighbour table. Nothing was transmitted to produce these.</p>'
+    + items.map(f => `
+      <div class="finding ${cls[f.severity] || "info"}">
+        <div class="finding-head">${icon[f.severity] || "•"} <strong>${esc(f.title)}</strong>
+          <span class="tag ${cls[f.severity] || "info"}">${esc(f.severity)}</span></div>
+        <p class="hint" style="margin:4px 0 0">${esc(f.detail)}</p>
+        ${f.evidence && f.evidence.length
+          ? `<ul class="evidence">${f.evidence.map(e => `<li class="mono">${esc(e)}</li>`).join("")}</ul>`
+          : ""}
+      </div>`).join("");
+}
+
+function renderView() {
+  if (!lastResults) return;
+  const r = lastResults, host = $("viewHost");
+  const lan = r.lan_devices || [], wifi = r.wifi_networks || [];
+  if (currentView === "findings")    host.innerHTML = findingsList(r.findings || []);
+  else if (currentView === "ours")   host.innerHTML = deviceTable(lan.filter(d => d.ownership === "ours"));
+  else if (currentView === "nearby") host.innerHTML = deviceTable(lan.filter(d => d.ownership !== "ours"));
+  else if (currentView === "wifiOurs")   host.innerHTML = wifiTable(wifi.filter(n => n.ownership === "ours"));
+  else if (currentView === "wifiNearby") host.innerHTML =
+      '<p class="hint">Observed passively from beacon frames already collected by the adapter. Not scanned, not contacted.</p>'
+      + wifiTable(wifi.filter(n => n.ownership !== "ours"));
+  else if (currentView === "scope")   host.innerHTML = scopeTable(r);
+  else if (currentView === "dash")    host.innerHTML = `
+      <div class="result-links">
+        <a href="/scan/${lastScanId}/diagram">⬇ draw.io diagram</a>
+        <a href="/scan/${lastScanId}/diagram?filtered=1">⬇ diagram (identified only)</a>
+        <a href="/scan/${lastScanId}/results.json" target="_blank">⬇ results.json</a>
+        <a href="/scan/${lastScanId}/dashboard" target="_blank">↗ open dashboard</a>
+      </div>
+      <iframe src="/scan/${lastScanId}/dashboard"></iframe>`;
+}
+
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  currentView = t.dataset.view;
+  renderView();
+}));
+
+function showResults(scanId, results) {
+  lastResults = results; lastScanId = scanId;
+  renderStats(results);
+  $("resultPanel").style.display = "block";
+  renderView();
+}
+
+/* ---------- stream ---------- */
+function connect() {
+  if (es) { es.close(); es = null; }
+  es = new EventSource("/stream");
+  es.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.kind === "log") appendLog(`[${m.t}] ${m.msg}`);
+    else if (m.kind === "progress") setProgress(m.stage, m.pct);
+    else if (m.kind === "status") setRunning(m.running, m.paused);
+    else if (m.kind === "done" || m.kind === "stopped") {
+      setRunning(false, false);
+      setProgress("done", 100);
+      // Prefer the scan's own measured duration. Deriving it from startedAt
+      // breaks when the stream replays a completed scan to a page that has
+      // just loaded — startedAt is null there, so the subtraction reports the
+      // time since the epoch.
+      const secs = m.results && m.results.scan_time;
+      $("elapsed").textContent = secs != null
+        ? `finished in ${fmt(secs * 1000)}`
+        : (startedAt ? `finished in ${fmt(Date.now() - startedAt)}` : "");
+      if (m.results) showResults(m.scan_id || lastScanId, m.results);
+      setTimeout(refreshScanList, 800);
+    } else if (m.kind === "error") {
+      setRunning(false, false);
+      appendLog(`[error] ${m.message}`);
+    }
+  };
+  es.onerror = () => { if (es) { es.close(); es = null; } setTimeout(connect, 3000); };
+}
+
+async function refreshScanList() {
+  try {
+    const html = await (await fetch("/")).text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const fresh = doc.getElementById("scanList");
+    const cur = document.getElementById("scanList");
+    if (fresh && cur) { cur.innerHTML = fresh.innerHTML; bindDeletes(); }
+  } catch { /* list refresh is cosmetic */ }
+}
+
+/* ---------- actions ---------- */
+$("scanBtn").addEventListener("click", async () => {
+  const cfg = readConfig();
+  if (cfg.scan_scope === "wide") {
+    if (!confirm("Wide scope probes addresses outside your own networks.\n\nOnly continue if you have authority over those ranges.")) return;
+    cfg.acknowledge_wide = true;
+  }
+  $("log").textContent = "";
+  $("resultPanel").style.display = "none";
+  setRunning(true, false);
+  setProgress("starting", 0);
+  startTimer();
+  const res = await fetch("/api/scan/start", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cfg),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    appendLog(`[error] ${e.error || res.statusText}`);
+    setRunning(false, false);
+    return;
+  }
+  lastScanId = (await res.json()).scan_id;
+});
+
+$("stopBtn").addEventListener("click", async () => {
+  if (!confirm("Stop the running scan? Partial results are kept.")) return;
+  await fetch("/api/scan/stop", { method: "POST" });
+});
+
+$("pauseBtn").addEventListener("click", async () => {
+  const resume = $("pauseBtn").textContent === "Resume";
+  await fetch(resume ? "/api/scan/resume" : "/api/scan/pause", { method: "POST" });
+});
+
+/* Reset. Settings-only by default; Shift-click also deletes saved scans.
+   The destructive half is behind a modifier and a confirm because deleting
+   scan history cannot be undone, while restoring settings always can. */
+$("resetBtn").addEventListener("click", async (ev) => {
+  const wipeHistory = ev.shiftKey;
+  const msg = wipeHistory
+    ? "Restore all settings to defaults AND permanently delete every saved scan?\n\nThe scan history cannot be recovered."
+    : "Restore all settings to defaults?\n\nSaved scans are kept. Shift-click Reset if you also want to delete them.";
+  if (!confirm(msg)) return;
+
+  const res = await fetch("/api/reset", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ config: true, history: wipeHistory }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    appendLog(`[error] ${data.error || res.statusText}`);
+    return;
+  }
+  loadConfig(data.config || {});
+  (data.actions || []).forEach(a => appendLog(`[reset] ${a}`));
+  if (wipeHistory) location.reload();
+});
+
+function bindDeletes() {
+  document.querySelectorAll("[data-del]").forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.del;
+      if (!confirm(`Delete scan ${id}?`)) return;
+      const res = await fetch(`/scan/${id}/delete`, { method: "POST" });
+      if (res.ok) btn.closest("li").remove();
+      else appendLog(`[error] could not delete ${id}`);
+    };
+  });
+}
+
+/* ---------- boot ---------- */
+loadConfig(serverConfig);
+bindDeletes();
+connect();
+fetch("/api/scan/status").then(r => r.json()).then(s => {
+  setRunning(s.running, s.paused);
+  if (s.running) {
+    $("logPanel").style.display = "block";
+    if (s.started_at) startTimer(new Date(s.started_at).getTime());
+    if (s.progress) setProgress(s.progress.stage, s.progress.pct);
+    lastScanId = s.scan_id;
+  } else if (s.has_results) {
+    fetch("/api/scan/results").then(r => r.json())
+      .then(res => {
+        showResults(s.scan_id, res);
+        if (res.scan_time != null) $("elapsed").textContent = `finished in ${fmt(res.scan_time * 1000)}`;
+      }).catch(() => {});
+  }
+});
+</script>
+</body>
+</html>
