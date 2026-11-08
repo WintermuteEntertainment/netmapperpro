@@ -6,14 +6,20 @@ NetMapperPro scans the local network and produces a draw.io diagram and an HTML 
 
 ## State
 
-- **Repo:** local git, no remote, nothing committed yet. Don't commit real scan data.
+- **Repo:** local git, branch `master`, no remote, so nothing can be pushed until one is added. First commit `ee7637a` on 2026-11-08. Don't commit real scan data.
 - **Script:** `NET_MAPPER_PRO.py`, an exact copy of `C:\Users\twwca\Downloads\NET_MAPPER_PRO.py`, last changed 2026-08-21. The Downloads copies remain untouched, including `netmapper-web` and older versions.
 - **Vendor registry:** `oui.csv` sits beside the script (copied 2026-11-08 from `Downloads\oui.csv`, identical SHA-256, IEEE data dated 2026-08-20). The script loads it automatically from its own folder whatever the working folder is: confirmed, 39,982 prefixes. Git ignores it.
 - **Older script:** `Downloads\ENHANCEDNETWORKMAPPERPRO.py` is an early version from 2026-03-10.
 
 ## Latest scan
 
-`runs/2026-11-08_135050_identify`, run 2026-11-08 at 13:50 (who ran it isn't recorded). It added mDNS, SSDP, WS-Discovery and a 16-port probe on 9 devices:
+`runs/2026-11-08_171034_vendors`, run 2026-11-08 at 17:10 with Tim's OK, the first with `oui.csv` loaded. Flags: `--enhanced --no-warning --no-open --identify-silent`, seeded with the 13:50 baseline:
+- 30 devices, 15 BSSIDs (4 ours), 47.9 seconds. Every device with a factory MAC now has a vendor; only randomized phone addresses lack one.
+- 2 warnings, both noise. The "8 new devices" were all seen before: 6 are the sweep-only devices from 13:50 that had no MAC then (the same bug as the "gone" list, in reverse), and 2 are iPhones back from the 11-07 scan. Of the 6 "new" access points, 5 are neighbours and 1 shares the main router's hardware prefix.
+- Noodlecart now advertises RDP as well as SSH. At 13:50 it showed SSH only.
+- The Hikvision device (Tim's doorbell) and the A10's `462A_2.4G` network were not seen in either 2026-11-08 run.
+
+Earlier on 2026-11-08: `runs/2026-11-08_135050_identify`, run at 13:50 (who ran it isn't recorded). It added mDNS, SSDP, WS-Discovery and a 16-port probe on 9 devices:
 - 29 devices, 11 Wi-Fi networks, 60.6 seconds. 3 warnings, 5 informational findings.
 - All 3 warnings are explained and harmless: the WSL virtual machine got a new hardware address after a restart, the "new" devices are that VM and Tim's ThinkPad, and the "new" access points are neighbours plus Wi-Fi Direct from the ThinkPad and Taichi.
 - Vendor lookup returned "Unknown" for every device because the repo had no `oui.csv` beside the script (fixed 2026-11-08, see State). The scanner loads one automatically from its own folder or the working folder. A copy of the IEEE registry is at `Downloads\oui.csv` (39,979 prefixes, dated 2026-08-20), which is why the Downloads copy and netmapper-web named vendors. IEEE's site refuses automated downloads (HTTP 418).
