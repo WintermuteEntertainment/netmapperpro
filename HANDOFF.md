@@ -6,7 +6,7 @@ NetMapperPro scans the local network and produces a draw.io diagram and an HTML 
 
 ## State
 
-- **Repo:** local git, branch `master`, no remote, so nothing can be pushed until one is added. First commit `ee7637a` on 2026-11-08. Don't commit real scan data.
+- **Repo:** branch `master`, pushed to the private GitHub repo https://github.com/WintermuteEntertainment/netmapperpro (created 2026-11-08 as `origin`). First commit `ee7637a` on 2026-11-08. Don't commit real scan data.
 - **Script:** `NET_MAPPER_PRO.py`, an exact copy of `C:\Users\twwca\Downloads\NET_MAPPER_PRO.py`, last changed 2026-08-21. The Downloads copies remain untouched, including `netmapper-web` and older versions.
 - **Vendor registry:** `oui.csv` sits beside the script (copied 2026-11-08 from `Downloads\oui.csv`, identical SHA-256, IEEE data dated 2026-08-20). The script loads it automatically from its own folder whatever the working folder is: confirmed, 39,982 prefixes. Git ignores it.
 - **Older script:** `Downloads\ENHANCEDNETWORKMAPPERPRO.py` is an early version from 2026-03-10.
