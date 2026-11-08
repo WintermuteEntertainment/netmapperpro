@@ -1,0 +1,14 @@
+# Real network data. Do not commit.
+runs/
+*.drawio
+*.drawio.xml
+netmapper_baseline*.json
+netmapper_watchlist*.json
+*.html
+*.log
+__pycache__/
+*.bat
+NETWORK_PLAN.md
+
+# Public IEEE vendor registry (3.8 MB). Loaded automatically from beside the script.
+oui.csv
