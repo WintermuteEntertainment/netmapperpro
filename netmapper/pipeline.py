@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from .config import Config
 from .models import NetworkDevice, WifiNetwork, Finding
+from .vendors import VendorDatabase
 from .netenum import LocalNetworkEnumerator, NetworkInterface, SweepTarget
 from .scanner import SecureNetworkScanner
 from .wifi import SecureWiFiScanner
@@ -174,6 +175,16 @@ def run_scan(*,
             _add_unlisted(result.lan_devices, onvif, scanner._own_addresses,
                           attached, "ws-discovery", _describe_onvif)
             log(f"    {len(onvif)} WS-Discovery responder(s)")
+
+        # Hosts that only answered discovery have no MAC yet; their replies put
+        # them in the neighbour table, so read it once more.
+        filled = scanner.fill_missing_macs(result.lan_devices)
+        for dev in filled:
+            if Config.SHOW_VENDOR_INFO:
+                dev.vendor = VendorDatabase.lookup(dev.mac)
+        if filled:
+            log(f"    Hardware address filled in for {len(filled)} device(s) "
+                f"found by discovery")
         progress("announce", 1, 1)
     checkpoint()
 

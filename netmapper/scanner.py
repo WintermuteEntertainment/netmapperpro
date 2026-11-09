@@ -273,6 +273,31 @@ class SecureNetworkScanner:
 
         return devices
 
+    def fill_missing_macs(self, devices: List[NetworkDevice]) -> List[NetworkDevice]:
+        """
+        Give MAC-less devices their hardware address from a fresh read of the
+        neighbour table. Returns the devices that were filled in.
+
+        A host found by the ping sweep (or by an mDNS/WS-Discovery reply) has
+        no MAC, because the table was read before we talked to it. Talking to
+        it puts it in the table, so a second read after the sweep finds it.
+        Without this the host had no vendor, could not anchor its own Wi-Fi
+        network as "ours", and broke the MAC-keyed baseline comparison.
+        """
+        missing = {d.ip: d for d in devices if not d.mac}
+        if not missing:
+            return []
+        filled = []
+        for row in self.scan_neighbors(self.interfaces):
+            dev = missing.get(row.ip)
+            if dev is None:
+                continue
+            dev.mac = row.mac
+            dev.neighbor_state = dev.neighbor_state or row.neighbor_state
+            dev.interface = dev.interface or row.interface
+            filled.append(dev)
+        return filled
+
     def _make_neighbor_device(self, ip: str, mac: str, alias: str, state: str,
                               gateways: Set[str], by_alias: Dict[str, 'NetworkInterface'],
                               seen: Set[str]) -> Optional[NetworkDevice]:
@@ -596,6 +621,11 @@ class SecureNetworkScanner:
                 nearby = len(ping_devices) - ours
                 self.on_log(f"      Found {len(ping_devices)} additional devices via sweep "
                             f"({ours} on our networks, {nearby} nearby)")
+
+                if ping_devices:
+                    filled = self.fill_missing_macs(ping_devices)
+                    self.on_log(f"      Hardware address filled in for {len(filled)} of "
+                                f"{len(ping_devices)} from the neighbour table after the sweep")
 
         # 4. Mark real gateways from the routing table
         gateways = self.get_default_gateways(self.interfaces)
