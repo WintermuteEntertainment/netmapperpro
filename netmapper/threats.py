@@ -221,7 +221,31 @@ class ThreatAnalyzer:
                         if d.get("mac")}
         now_devices = {d.mac: d for d in devices if d.mac and d.ownership == "ours"}
 
-        new_macs = sorted(set(now_devices) - set(prev_devices))
+        # A device found only by the ping sweep has no MAC, because it never
+        # reached the neighbour table. Keyed on MAC alone, it reads as gone in
+        # the scan where it lacks one and new in the next scan that has it. So
+        # a MAC-less entry at the same IP counts as the same device, provided
+        # the hostnames agree wherever both scans have one.
+        prev_macless = {d.get("ip"): d for d in baseline.get("lan_devices", [])
+                        if d.get("ip") and not d.get("mac")}
+        now_macless = {d.ip: d for d in devices
+                       if d.ip and not d.mac and d.ownership == "ours"}
+
+        def names_agree(a, b):
+            return not a or not b or a.strip().lower() == b.strip().lower()
+
+        def seen_before(m):
+            prev = prev_macless.get(now_devices[m].ip)
+            return prev is not None and names_agree(now_devices[m].hostname,
+                                                    prev.get("hostname"))
+
+        def still_here(m):
+            now = now_macless.get(prev_devices[m].get("ip"))
+            return now is not None and names_agree(now.hostname,
+                                                   prev_devices[m].get("hostname"))
+
+        new_macs = sorted(m for m in set(now_devices) - set(prev_devices)
+                          if not seen_before(m))
         if new_macs:
             findings.append(Finding(
                 severity="warning",
@@ -234,7 +258,8 @@ class ThreatAnalyzer:
                           for m in new_macs],
             ))
 
-        gone = sorted(set(prev_devices) - set(now_devices))
+        gone = sorted(m for m in set(prev_devices) - set(now_devices)
+                      if not still_here(m))
         if gone:
             findings.append(Finding(
                 severity="info",
