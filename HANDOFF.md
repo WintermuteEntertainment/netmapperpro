@@ -14,7 +14,7 @@ NetMapperPro scans the local network and produces a draw.io diagram and an HTML 
 
 ## Hosted at https://nmpro.timcase.ca (2026-11-08)
 
-The web app runs on BBB behind Cloudflare Access (team `wintermute2`, only `tim@timcase.info`, emailed one-time code) and checks Cloudflare's signed token itself, so it fails closed. Details, paths, update and takedown steps: [docs/DEPLOY_BBB.md](docs/DEPLOY_BBB.md). Existing tunnel sites were checked before and after the tunnel restart and were unchanged.
+The web app runs on BBB behind Cloudflare Access (team `wintermute2`, only `tim@timcase.info`, emailed one-time code) and checks Cloudflare's signed token itself, so it fails closed. Details, paths, update and takedown steps: [docs/DEPLOY_BBB.md](docs/DEPLOY_BBB.md). Existing tunnel sites were checked before and after the tunnel restart and were unchanged. Verified end to end the same evening: Tim logged in through Access, the app accepted the real token, and scan `2026-11-08_205745` ran on BBB as the logged-off task in 41.4 s (28 devices of ours, 1 nearby, and the Wi-Fi survey works from BBB: 39 BSSIDs).
 
 ## The refactor (2026-11-08)
 
@@ -48,7 +48,7 @@ python -I ../../NET_MAPPER_PRO.py --enhanced --no-warning --no-open --identify-s
 
 ## Next steps
 
-1. Tim logs in at https://nmpro.timcase.ca, then run one scan from BBB to confirm a real token passes the app's check and scanning works as a logged-off task (Wi-Fi survey from BBB is unverified).
+1. Root-cause fix worth doing: devices found only by the ping sweep never get a MAC, because the neighbour table is read before the sweep. Re-reading it after the sweep (the pings fill it) would give them MACs and vendors. On BBB's first scan this left 5 devices without a MAC, including the A10, so the A10's `462A_2.4G` and `462A_5G` were labelled "nearby" instead of ours.
 2. Tim decides on the Taichi Wi-Fi Direct labelling. Claude recommends leaving it.
 3. Network plan: Tim reviews `NETWORK_PLAN.md`, does the Archer A10 phone test and identifies the remaining unknown devices. The reservation steps conflict with the 2026-08-25 home-network notes (the Home Hub 4000 has no DHCP reservation control, and Tim chose not to pursue reservations); Tim to confirm before relying on them.
 
