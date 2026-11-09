@@ -8,7 +8,7 @@ NetMapperPro scans the local network and produces a draw.io diagram and an HTML 
 
 - **Repo:** private GitHub repo https://github.com/WintermuteEntertainment/netmapperpro (`origin`). The refactor (`a4a3979` through `f9b8618`) was fast-forwarded into `master` and pushed on 2026-11-08, with Tim's OK. Branch `refactor` is also on GitHub; it can be deleted once Tim no longer wants it. Don't commit real scan data.
 - **Code:** the `netmapper/` package (17 modules). `NET_MAPPER_PRO.py` is now a short entry point that re-exports the package, so old commands and `import NET_MAPPER_PRO` still work.
-- **Web app:** `web/` (Flask, http://127.0.0.1:7890), copied from `Downloads\netmapper-web` on 2026-11-08. It imports the repo scanner. Flask 3.1.3 is installed in Tim's user site-packages, so start it with plain `python web\app.py` or `web\run.bat`, not `python -I`. Its scan history goes in `web/scans/`, which git ignores. It was checked by loading pages with Flask's test client; **no scan has been run through the web app yet.**
+- **Web app:** `web/` (Flask, http://127.0.0.1:7890), copied from `Downloads\netmapper-web` on 2026-11-08. It imports the repo scanner. Flask 3.1.3 is installed in Tim's user site-packages, so start it with plain `python web\app.py` or `web\run.bat`, not `python -I`. Its scan history goes in `web/scans/`, which git ignores. Verified end to end on 2026-11-08: scan `web/scans/2026-11-08_201030` was started from the page with default settings (probing off). It finished in 44.6 seconds with no errors: 28 devices of ours, 1 nearby, 21 BSSIDs, 4 informational findings. The dashboard, diagram, filtered diagram, results.json and log all load. `.claude/launch.json` (untracked) starts the app from the Claude desktop app's preview pane.
 - **Vendor registry:** `oui.csv` in the repo root (IEEE data dated 2026-08-20, 39,979 prefixes, git-ignored), loaded automatically. IEEE's site refuses automated downloads (HTTP 418), so a newer copy has to be downloaded by hand.
 - **Downloads:** the original `NET_MAPPER_PRO.py`, `netmapper-web` (with its `.bak`, `server.log` and three August scans) and older versions are untouched.
 
@@ -44,9 +44,8 @@ python -I ../../NET_MAPPER_PRO.py --enhanced --no-warning --no-open --identify-s
 
 ## Next steps
 
-1. Run one scan through the web app to confirm it end to end.
-2. Tim decides on the Taichi Wi-Fi Direct labelling. Claude recommends leaving it.
-3. Network plan, unchanged: Tim reviews `NETWORK_PLAN.md`, does the Archer A10 phone test, identifies the remaining unknown devices, reserves addresses lowest risk first with BBB last, then rescan.
+1. Tim decides on the Taichi Wi-Fi Direct labelling. Claude recommends leaving it.
+2. Network plan, unchanged: Tim reviews `NETWORK_PLAN.md`, does the Archer A10 phone test, identifies the remaining unknown devices, reserves addresses lowest risk first with BBB last, then rescan.
 
 **Rules:** Tim makes router changes himself. Scan only his own network. Be careful with BBB, because JAZZ and other live sites depend on it.
 
