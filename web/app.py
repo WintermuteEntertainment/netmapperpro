@@ -55,6 +55,34 @@ _OUI_COUNT = mapper.VendorDatabase.autoload([str(APP_DIR)])
 
 app = Flask(__name__)
 
+import access  # noqa: E402  (beside this file; see access.py)
+
+
+@app.before_request
+def require_cloudflare_access():
+    """
+    When published (NMPRO_ACCESS_TEAM/AUD set), refuse any request that does
+    not carry a valid Cloudflare Access token. Fails closed: a missing,
+    expired, forged or wrong-audience token, or an error fetching Cloudflare's
+    keys, all get 403.
+    """
+    if not access.ENABLED or request.path in access.OPEN_PATHS:
+        return None
+    token = access.token_from(request)
+    if not token:
+        abort(403)
+    try:
+        access.identity(token)
+    except Exception:
+        abort(403)
+    return None
+
+
+@app.route("/healthz")
+def healthz():
+    """Liveness check for the BBB watchdog. Says nothing about the network."""
+    return "ok", 200, {"Content-Type": "text/plain"}
+
 
 # ─────────────────────────── scan state ───────────────────────────
 

@@ -1,1 +1,4 @@
 flask>=3.0
+# Hosting on BBB (web/serve.py, web/access.py). Not needed for local use.
+waitress>=3.0
+PyJWT[crypto]>=2.8

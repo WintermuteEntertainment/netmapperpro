@@ -18,3 +18,4 @@ oui.csv
 web/scans/
 !web/run.bat
 !web/templates/*.html
+!deploy/*.bat
