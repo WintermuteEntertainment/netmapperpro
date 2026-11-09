@@ -1,6 +1,7 @@
 """MAC address to manufacturer lookup."""
 
 import subprocess, re, time, os, json, ipaddress, socket, sys, math, statistics, html, argparse, shlex
+import csv
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple, Optional, Any, DefaultDict
@@ -334,9 +335,20 @@ class VendorDatabase:
                     line = line.strip()
                     if not line or line.lower().startswith("registry,"):
                         continue
-                    parts = line.split(",") if "," in line else line.split(None, 1)
+                    if "," in line:
+                        # IEEE quotes names that contain commas, e.g.
+                        # "Hangzhou Hikvision Digital Technology Co.,Ltd.",
+                        # so a plain split cut them at the first comma.
+                        parts = next(csv.reader([line]))
+                        if not (len(parts) >= 3 and len(parts[1]) == 6):
+                            # 'AABBCC,Vendor, Inc.': keep the rest whole.
+                            parts = line.split(",", 1)
+                    else:
+                        parts = line.split(None, 1)
                     if len(parts) >= 3 and len(parts[1]) == 6:
-                        oui, name = parts[1], parts[2].strip().strip('"')
+                        # csv.reader has already removed the quoting; names
+                        # such as 'UAB "Teltonika Telematics"' keep their own.
+                        oui, name = parts[1], parts[2].strip()
                     elif len(parts) == 2 and len(parts[0].replace(":", "").replace("-", "")) == 6:
                         oui = parts[0].replace(":", "").replace("-", "")
                         name = parts[1].strip()
