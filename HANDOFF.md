@@ -12,6 +12,10 @@ NetMapperPro scans the local network and produces a draw.io diagram and an HTML 
 - **Vendor registry:** `oui.csv` in the repo root (IEEE data dated 2026-08-20, 39,979 prefixes, git-ignored), loaded automatically. IEEE's site refuses automated downloads (HTTP 418), so a newer copy has to be downloaded by hand.
 - **Downloads:** the original `NET_MAPPER_PRO.py`, `netmapper-web` (with its `.bak`, `server.log` and three August scans) and older versions are untouched.
 
+## Hosted at https://nmpro.timcase.ca (2026-11-08)
+
+The web app runs on BBB behind Cloudflare Access (team `wintermute2`, only `tim@timcase.info`, emailed one-time code) and checks Cloudflare's signed token itself, so it fails closed. Details, paths, update and takedown steps: [docs/DEPLOY_BBB.md](docs/DEPLOY_BBB.md). Existing tunnel sites were checked before and after the tunnel restart and were unchanged.
+
 ## The refactor (2026-11-08)
 
 1. **Split into a package.** Code moved verbatim; a parse-tree comparison confirmed it. One deliberate change: the vendor list is searched for in the repo root.
@@ -44,8 +48,9 @@ python -I ../../NET_MAPPER_PRO.py --enhanced --no-warning --no-open --identify-s
 
 ## Next steps
 
-1. Tim decides on the Taichi Wi-Fi Direct labelling. Claude recommends leaving it.
-2. Network plan, unchanged: Tim reviews `NETWORK_PLAN.md`, does the Archer A10 phone test, identifies the remaining unknown devices, reserves addresses lowest risk first with BBB last, then rescan.
+1. Tim logs in at https://nmpro.timcase.ca, then run one scan from BBB to confirm a real token passes the app's check and scanning works as a logged-off task (Wi-Fi survey from BBB is unverified).
+2. Tim decides on the Taichi Wi-Fi Direct labelling. Claude recommends leaving it.
+3. Network plan: Tim reviews `NETWORK_PLAN.md`, does the Archer A10 phone test and identifies the remaining unknown devices. The reservation steps conflict with the 2026-08-25 home-network notes (the Home Hub 4000 has no DHCP reservation control, and Tim chose not to pursue reservations); Tim to confirm before relying on them.
 
 **Rules:** Tim makes router changes himself. Scan only his own network. Be careful with BBB, because JAZZ and other live sites depend on it.
 
