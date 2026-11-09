@@ -48,8 +48,9 @@ python -I ../../NET_MAPPER_PRO.py --enhanced --no-warning --no-open --identify-s
 
 ## Next steps
 
-1. Root-cause fix worth doing: devices found only by the ping sweep never get a MAC, because the neighbour table is read before the sweep. Re-reading it after the sweep (the pings fill it) would give them MACs and vendors. On BBB's first scan this left 5 devices without a MAC, including the A10, so the A10's `462A_2.4G` and `462A_5G` were labelled "nearby" instead of ours.
-2. Tim decides on the Taichi Wi-Fi Direct labelling. Claude recommends leaving it.
+1. Sweep MAC fix (`dc7cc41`, deployed to BBB 2026-11-08): `fill_missing_macs()` re-reads the neighbour table after the sweep and after discovery. The verification scan `2026-11-08_210911` had every device with a MAC and the A10's `462A_2.4G`/`462A_5G` as ours, but its sweep found nothing new (the table was still warm from the previous scan), so the fill path itself has not yet been seen doing work. Look for "Hardware address filled in" in the log of the next cold scan. The same scan flagged the Hikvision doorbell (.18) under the surveillance watchlist rule, as designed.
+2. Bluebeard (.229, Unraid) runs a Telnet server on port 23 (confirmed 2026-11-08: it opens a Telnet option negotiation). Tim asked about closing it; recommendation is yes (Unraid: Settings > Management Access > Use TELNET: No, menu path unverified). Port 514 also accepts connections silently (probably the syslog server; unverified).
+3. Tim decides on the Taichi Wi-Fi Direct labelling. Claude recommends leaving it.
 3. Network plan: Tim reviews `NETWORK_PLAN.md`, does the Archer A10 phone test and identifies the remaining unknown devices. The reservation steps conflict with the 2026-08-25 home-network notes (the Home Hub 4000 has no DHCP reservation control, and Tim chose not to pursue reservations); Tim to confirm before relying on them.
 
 **Rules:** Tim makes router changes himself. Scan only his own network. Be careful with BBB, because JAZZ and other live sites depend on it.
