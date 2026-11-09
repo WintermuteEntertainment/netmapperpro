@@ -12,7 +12,7 @@ import itertools
 import threading
 
 from .vendors import VendorDatabase
-from .models import Finding, NetworkDevice, _ip_sort_key
+from .models import Finding, NetworkDevice, _ip_sort_key, is_virtual_mac
 
 
 class ThreatAnalyzer:
@@ -217,9 +217,14 @@ class ThreatAnalyzer:
         """
         findings = []
 
+        # Virtual adapters are left out of the device comparison. WSL's
+        # virtual machine, for one, gets a new MAC every time it starts, which
+        # would otherwise raise "appeared", "gone" and "changed hardware" on
+        # every scan without telling you anything about the real network.
         prev_devices = {d.get("mac"): d for d in baseline.get("lan_devices", [])
-                        if d.get("mac")}
-        now_devices = {d.mac: d for d in devices if d.mac and d.ownership == "ours"}
+                        if d.get("mac") and not is_virtual_mac(d.get("mac"))}
+        now_devices = {d.mac: d for d in devices
+                       if d.mac and d.ownership == "ours" and not d.is_virtual}
 
         # A device found only by the ping sweep has no MAC, because it never
         # reached the neighbour table. Keyed on MAC alone, it reads as gone in
@@ -277,6 +282,8 @@ class ThreatAnalyzer:
         changed = []
         for d in devices:
             was = prev_by_ip.get(d.ip)
+            if d.is_virtual or is_virtual_mac(was):
+                continue
             if was and d.mac and was != d.mac:
                 changed.append(f"{d.ip}: {was} -> {d.mac}")
         if changed:

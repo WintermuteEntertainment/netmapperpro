@@ -112,11 +112,18 @@ class NetworkDevice:
     @property
     def is_virtual(self) -> bool:
         """Check if device is virtual (VMware, Hyper-V, etc.)."""
-        if not self.mac:
-            return False
-        # Common virtual machine MAC address prefixes
-        virtual_macs = ['00:50:56', '00:0C:29', '00:05:69', '00:1C:14', '00:1C:42']
-        return any(self.mac.upper().startswith(prefix) for prefix in virtual_macs)
+        return is_virtual_mac(self.mac)
+
+
+# Prefixes that virtualisation software assigns to virtual network adapters:
+# VMware (00:50:56, 00:0C:29, 00:05:69, 00:1C:14), Parallels (00:1C:42) and
+# Microsoft Hyper-V (00:15:5D), which is also what WSL's virtual machine uses.
+VIRTUAL_MAC_PREFIXES = ('00:50:56', '00:0C:29', '00:05:69', '00:1C:14', '00:1C:42',
+                        '00:15:5D')
+
+
+def is_virtual_mac(mac: str) -> bool:
+    return bool(mac) and mac.upper().startswith(VIRTUAL_MAC_PREFIXES)
 
 
 # ==================== WIRELESS DATA MODEL ====================
