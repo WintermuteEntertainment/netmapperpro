@@ -26,192 +26,11 @@ from .watchlist import VendorWatchlist
 from .threats import ThreatAnalyzer
 from .dashboard import SecureDashboard
 from .baseline import BASELINE_FILE, load_baseline, save_baseline
+from .pipeline import run_scan
 
 
 # ==================== MAIN APPLICATION ====================
-def main_enhanced(args):
-    """
-    ENHANCED MAIN APPLICATION WITH SECURITY FEATURES
-    
-    This is the primary scanning workflow that:
-    1. Performs LAN scanning
-    2. Performs WiFi scanning
-    3. Analyzes network topology
-    4. Generates diagrams and dashboards
-    5. Creates security-conscious output files
-    """
-    try:
-        print("\n" + "="*80)
-        print("🔒 SECURE NETWORK INTELLIGENCE MAPPER PRO")
-        print("="*80)
-        print("Features: Secure scanning • Input validation • Rate limiting")
-        print("-"*80)
-        
-        # Show ethical guidelines if enabled
-        if Config.SHOW_ETHICAL_GUIDELINES:
-            LegalDisclaimer.show_ethical_guidelines()
-        
-        start_time = datetime.now()
-        
-        # Initialize secure scanner
-        scanner = SecureNetworkScanner()
-        
-        # ===== STEP 1: SCAN NETWORK =====
-        print("\n[1/3] Secure network scanning...")
-        lan_devices = []
-        if args.mode in ["all", "lan"]:
-            lan_devices = scanner.scan_lan_enhanced()
-        
-        # ===== STEP 2: SCAN WiFi =====
-        print("\n[2/3] Passive wireless survey...")
-        wifi_networks: List[WifiNetwork] = []
-        wifi_devices: List[NetworkDevice] = []
-        if args.mode in ["all", "wifi"]:
-            # Hand the classifier every MAC we can justify calling ours, so a
-            # device of ours that also broadcasts its own SSID is recognised
-            # rather than reported as a stranger.
-            wifi_networks = SecureWiFiScanner.scan_wifi(
-                our_macs=scanner.our_known_macs(lan_devices)
-            )
-            wifi_devices = [n.to_device() for n in wifi_networks]
-            radios = SecureWiFiScanner.group_by_radio(wifi_networks)
-            ours_n = sum(1 for n in wifi_networks if n.ownership == "ours")
-            print(f"    {len(wifi_networks)} BSSIDs across {len(radios)} physical radios "
-                  f"({ours_n} ours, {len(wifi_networks) - ours_n} nearby)")
-
-        # ===== STEP 3: ANALYZE TOPOLOGY =====
-        print("\n[3/3] Analyzing network topology...")
-        topology = scanner.infer_network_topology(lan_devices)
-        topology['wifi'] = wifi_networks
-        topology['interfaces'] = scanner.interfaces
-        topology['sweep_targets'] = scanner.sweep_targets
-
-        # ===== STEP 3a: ANNOUNCEMENT LISTENING =====
-        if Config.PASSIVE_DISCOVERY and args.mode in ("all", "lan"):
-            print("\n📻 Listening for device announcements...")
-            announced = PassiveDiscovery.collect(
-                scanner.interfaces,
-                duration=Config.DISCOVERY_DURATION,
-                active=Config.DISCOVERY_SOLICIT,
-                on_log=print,
-            )
-            enriched = PassiveDiscovery.apply(lan_devices, announced)
-            print(f"    {len(announced)} host(s) announced, {enriched} device(s) enriched")
-
-            # Announcements can reveal hosts the neighbour table missed.
-            known = {d.ip for d in lan_devices}
-            attached_nets = [i.network for i in scanner.interfaces if i.network]
-            for ip, info in announced.items():
-                if ip in known or ip in scanner._own_addresses:
-                    continue
-                dev = NetworkDevice(ip=ip, network_type="lan")
-                dev.hostname = sorted(info["names"])[0] if info["names"] else ""
-                dev.services = sorted(info["services"])
-                dev.discovered_via = "announcement"
-                dev.ownership = scanner._classify_ownership(ip, attached_nets)
-                lan_devices.append(dev)
-                print(f"    + {ip} found via announcement only")
-
-            # ONVIF / WS-Discovery: cameras and NVRs answer here and nowhere else.
-            onvif = WSDiscovery.probe(scanner.interfaces, duration=6.0, on_log=print)
-            if onvif:
-                WSDiscovery.apply(lan_devices, onvif)
-                known = {d.ip for d in lan_devices}
-                for ip, info in onvif.items():
-                    if ip in known or ip in scanner._own_addresses:
-                        continue
-                    dev = NetworkDevice(ip=ip, network_type="lan")
-                    dev.hostname = info.get("name") or info.get("hardware") or ""
-                    dev.discovered_via = "ws-discovery"
-                    dev.ownership = scanner._classify_ownership(ip, attached_nets)
-                    lan_devices.append(dev)
-                print(f"    {len(onvif)} WS-Discovery responder(s)")
-
-        # ===== STEP 3b: SERVICE PROBING =====
-        # Its own phase, deliberately outside the announcement-listening block
-        # above: probing used to be nested inside it, so --no-discovery
-        # silently disabled port probing too. They are separate decisions.
-        #
-        # The baseline is loaded before this rather than after, because
-        # select='new' and the 'known'/'new' network names are answered from
-        # it. Nothing else about the ordering changed.
-        baseline = load_baseline(args)
-
-        if not Config.IDENTIFY_SILENT and args.mode in ("all", "lan"):
-            # Say so rather than skipping in silence. A depth setting with no
-            # probe behind it is the single easiest thing to misread as "the
-            # deep scan ran and found nothing".
-            print(f"\n🔌 Service probing: OFF (depth would be "
-                  f"{Config.PROBE_DEPTH}). Enable with --identify-silent.")
-
-        if Config.IDENTIFY_SILENT and args.mode in ("all", "lan"):
-            print("\n🔌 Probing for open service ports...")
-            nets = ServiceProbe.resolve_nets(
-                Config.PROBE_NETS,
-                interfaces=scanner.interfaces,
-                sweep_targets=scanner.sweep_targets,
-                baseline=baseline,
-                on_log=print,
-            )
-            if Config.PROBE_NETS and not nets:
-                print("    ! No networks matched --probe-net; nothing probed.")
-            else:
-                found = ServiceProbe.identify(
-                    lan_devices,
-                    on_log=print,
-                    nets=nets or None,
-                    baseline=baseline,
-                    allow_foreign=getattr(args, "i_have_permission", False),
-                )
-                print(f"    {found} device(s) answered on at least one port")
-
-        # ===== STEP 3c: PASSIVE THREAT ANALYSIS =====
-        findings = ThreatAnalyzer.analyze(lan_devices, wifi_networks,
-                                          scanner.interfaces, baseline)
-        findings += ChannelAnalyzer.findings(
-            wifi_networks, (baseline or {}).get("wifi_networks"))
-        findings += ServiceProbe.findings(lan_devices)
-        if Config.USE_WATCHLIST:
-            findings += VendorWatchlist.check(lan_devices)
-            findings.sort(key=lambda f: ({"critical": 0, "warning": 1,
-                                          "info": 2}.get(f.severity, 3), f.category))
-        topology['findings'] = findings
-        if findings:
-            crit = sum(1 for f in findings if f.severity == "critical")
-            warn = sum(1 for f in findings if f.severity == "warning")
-            print(f"\n🛡️  {len(findings)} finding(s): {crit} critical, {warn} warning")
-            for f in findings:
-                if f.severity in ("critical", "warning"):
-                    print(f"    [{f.severity.upper()}] {f.title}")
-
-        scan_duration = (datetime.now() - start_time).total_seconds()
-        
-        # ===== STEP 4: GENERATE SECURE DIAGRAM =====
-        print("\n🎨 Generating secure diagram...")
-        diagram_xml = EnhancedDiagramGenerator.generate_hierarchical_diagram(
-            lan_devices, wifi_devices, topology
-        )
-        
-        with open("secure_network_diagram.drawio.xml", "w", encoding="utf-8") as f:
-            f.write(diagram_xml)
-        print("   ✓ Saved: secure_network_diagram.drawio.xml")
-        
-        # ===== STEP 5: GENERATE SECURE DASHBOARD =====
-        print("📊 Creating secure dashboard...")
-        dashboard_html = SecureDashboard.generate_dashboard(
-            lan_devices, wifi_devices, scan_duration, topology
-        )
-        
-        with open("secure_network_dashboard.html", "w", encoding="utf-8") as f:
-            f.write(dashboard_html)
-        print("   ✓ Saved: secure_network_dashboard.html")
-
-        # Record this scan so the next one can report what changed.
-        save_baseline(args, lan_devices, wifi_networks)
-        
-        # ===== STEP 6: CREATE SECURE LAUNCHER (Windows batch file) =====
-        with open("launch_secure.bat", "w", encoding="utf-8-sig") as f:
-            f.write('''@echo off
+LAUNCHER_ENHANCED = '''@echo off
 chcp 65001 > nul
 echo.
 echo ===============================================
@@ -233,131 +52,9 @@ echo.
 echo Open the .XML file with draw.io for interactive editing.
 echo.
 echo 🔒 SECURE YOUR FILES!
-pause''')
-        print("   ✓ Saved: launch_secure.bat")
-        
-        # ===== STEP 7: DISPLAY RESULTS SUMMARY =====
-        print("\n" + "="*80)
-        print("✅ SECURE SCAN COMPLETE!")
-        print("="*80)
-        
-        # Group devices by subnet for summary
-        subnets = defaultdict(list)
-        for device in lan_devices:
-            if device.subnet:
-                subnets[device.subnet].append(device)
-        
-        print(f"\n📊 SECURE RESULTS:")
-        print(f"  • Scan Time: {scan_duration:.1f} seconds")
-        print(f"  • Total Devices: {len(lan_devices)}")
-        print(f"  • Subnets Detected: {len(subnets)}")
-        
-        # Show subnet breakdown
-        for subnet, devices in subnets.items():
-            wireless = sum(1 for d in devices if 'wireless' in d.tags)
-            gateways = sum(1 for d in devices if d.is_gateway)
-            print(f"  • {subnet}: {len(devices)} devices ({wireless} wireless, {gateways} gateways)")
-        
-        print(f"  • WiFi Networks: {len(wifi_devices)}")
-        
-        if topology.get('gateways'):
-            print(f"  • Gateways: {', '.join(topology['gateways'])}")
-        
-        print(f"\n📁 FILES CREATED (⚠️ Contains sensitive info):")
-        print(f"  • secure_network_diagram.drawio.xml - Secure hierarchical diagram")
-        print(f"  • secure_network_dashboard.html - Secure dashboard with warnings")
-        print(f"  • launch_secure.bat - Launcher with security notice")
-        
-        print(f"\n🔒 SECURITY REMINDER:")
-        print(f"  ⚠️  These files contain sensitive network information")
-        print(f"  🔐 Encrypt files before storage or sharing")
-        print(f"  🗑️  Delete when no longer needed")
-        print(f"  👥 Share only with authorized personnel")
-        
-        print(f"\n🚀 QUICK START:")
-        print(f"  1. Run 'launch_secure.bat'")
-        print(f"  2. Open the secure diagram in draw.io")
-        print(f"  3. 🔐 ENCRYPT YOUR FILES!")
-        
-        # Auto-open dashboard if configured
-        if Config.AUTO_OPEN and not args.no_open:
-            print(f"\n🔄 Opening secure dashboard...")
-            dashboard_path = os.path.abspath("secure_network_dashboard.html")
-            file_url = "file:///" + dashboard_path.replace('\\', '/')
-            webbrowser.open(file_url)
-            
-    except Exception as e:
-        print(f"\n❌ Error in secure scan: {e}")
-        import traceback
-        traceback.print_exc()
+pause'''
 
-
-def main_original(args):
-    """
-    ORIGINAL MAIN FUNCTION WITH SECURITY IMPROVEMENTS
-    
-    Simplified version of the main workflow with basic scanning
-    and compatibility-focused output.
-    """
-    try:
-        print("\n" + "="*80)
-        print("🔒 ORIGINAL NETWORK INTELLIGENCE MAPPER (Secure)")
-        print("="*80)
-        
-        # Show ethical guidelines if enabled
-        if Config.SHOW_ETHICAL_GUIDELINES:
-            LegalDisclaimer.show_ethical_guidelines()
-        
-        start_time = datetime.now()
-        
-        # Use the secure scanner
-        scanner = SecureNetworkScanner()
-        print("\n[1/2] Secure LAN scanning...")
-        lan_devices = scanner.scan_lan_enhanced()
-        
-        print("\n[2/2] Secure WiFi scanning...")
-        wifi_networks = SecureWiFiScanner.scan_wifi(
-            our_macs=scanner.our_known_macs(lan_devices)
-        )
-        wifi_devices = [n.to_device() for n in wifi_networks]
-
-        scan_duration = (datetime.now() - start_time).total_seconds()
-
-        # Build a real topology rather than handing the renderers an empty one.
-        # Passing {'gateways': [], 'subnets': {}, ...} meant this mode produced a
-        # diagram with no gateway, no subnet grouping and no wireless section.
-        topology = scanner.infer_network_topology(lan_devices)
-        topology['wifi'] = wifi_networks
-        topology['interfaces'] = scanner.interfaces
-        topology['sweep_targets'] = scanner.sweep_targets
-
-        # Generate outputs using original format
-        print("\n🎨 Generating secure outputs...")
-
-        # Generate diagram
-        print("[1/3] Creating secure network diagram...")
-        diagram_xml = EnhancedDiagramGenerator.generate_hierarchical_diagram(
-            lan_devices, wifi_devices, topology
-        )
-        with open("network_diagram.drawio.xml", "w", encoding="utf-8") as f:
-            f.write(diagram_xml)
-        print("   ✓ Saved: network_diagram.drawio.xml")
-
-        # Generate the dashboard the launcher below actually opens.
-        # This step was numbered "[3/3]" in the output but never implemented, so
-        # open_dashboard.bat has always pointed at a file that did not exist.
-        print("[2/3] Creating dashboard...")
-        dashboard_html = SecureDashboard.generate_dashboard(
-            lan_devices, wifi_devices, scan_duration, topology
-        )
-        with open("network_dashboard.html", "w", encoding="utf-8") as f:
-            f.write(dashboard_html)
-        print("   ✓ Saved: network_dashboard.html")
-
-        # Create secure launcher
-        print("[3/3] Creating secure launcher...")
-        with open("open_dashboard.bat", "w", encoding="utf-8-sig") as f:
-            f.write('''@echo off
+LAUNCHER_ORIGINAL = '''@echo off
 chcp 65001 > nul
 echo.
 echo ===============================================
@@ -376,29 +73,162 @@ echo   - open_dashboard.bat - This launcher
 echo.
 echo 🔒 Encrypt files before storage or sharing!
 echo.
-pause''')
-        print("   ✓ Saved: open_dashboard.bat")
-        
+pause'''
+
+
+def _fail(what, exc):
+    """
+    Report a failed run and exit with code 1, so scripts and schedulers can
+    tell it failed. The full traceback is shown only with --debug.
+    """
+    print(f"\n❌ {what}: {exc}")
+    if Config.SHOW_TRACEBACK:
+        import traceback
+        traceback.print_exc()
+    else:
+        print("   Run again with --debug to see the full error.")
+    sys.exit(1)
+
+
+def _write_outputs(result, diagram_path, dashboard_path, launcher_path, launcher_text):
+    """Write the diagram, dashboard and Windows launcher for one scan."""
+    print("\n🎨 Generating secure diagram...")
+    diagram_xml = EnhancedDiagramGenerator.generate_hierarchical_diagram(
+        result.lan_devices, result.wifi_devices, result.topology
+    )
+    with open(diagram_path, "w", encoding="utf-8") as f:
+        f.write(diagram_xml)
+    print(f"   ✓ Saved: {diagram_path}")
+
+    print("📊 Creating secure dashboard...")
+    dashboard_html = SecureDashboard.generate_dashboard(
+        result.lan_devices, result.wifi_devices, result.duration, result.topology
+    )
+    with open(dashboard_path, "w", encoding="utf-8") as f:
+        f.write(dashboard_html)
+    print(f"   ✓ Saved: {dashboard_path}")
+
+    # utf-8-sig so cmd.exe shows the emoji after `chcp 65001`.
+    with open(launcher_path, "w", encoding="utf-8-sig") as f:
+        f.write(launcher_text)
+    print(f"   ✓ Saved: {launcher_path}")
+
+
+def main_enhanced(args):
+    """
+    The normal scan: everything the scanner can do, written to the current
+    folder as a diagram, a dashboard, a launcher and the baseline.
+    """
+    try:
+        print("\n" + "="*80)
+        print("🔒 SECURE NETWORK INTELLIGENCE MAPPER PRO")
+        print("="*80)
+        print("Features: Secure scanning • Input validation • Rate limiting")
+        print("-"*80)
+
+        if Config.SHOW_ETHICAL_GUIDELINES:
+            LegalDisclaimer.show_ethical_guidelines()
+
+        # Loaded before the scan because probe selection ('new') reads it.
+        baseline = load_baseline(args)
+        result = run_scan(
+            baseline=baseline,
+            allow_foreign=getattr(args, "i_have_permission", False),
+            on_log=print,
+        )
+
+        _write_outputs(result, "secure_network_diagram.drawio.xml",
+                       "secure_network_dashboard.html", "launch_secure.bat",
+                       LAUNCHER_ENHANCED)
+
+        # Record this scan so the next one can report what changed.
+        save_baseline(args, result.lan_devices, result.wifi_networks)
+
+        print("\n" + "="*80)
+        print("✅ SECURE SCAN COMPLETE!")
+        print("="*80)
+
+        subnets = defaultdict(list)
+        for device in result.lan_devices:
+            if device.subnet:
+                subnets[device.subnet].append(device)
+
+        print(f"\n📊 SECURE RESULTS:")
+        print(f"  • Scan Time: {result.duration:.1f} seconds")
+        print(f"  • Total Devices: {len(result.lan_devices)}")
+        print(f"  • Subnets Detected: {len(subnets)}")
+        for subnet, devices in subnets.items():
+            wireless = sum(1 for d in devices if 'wireless' in d.tags)
+            gateways = sum(1 for d in devices if d.is_gateway)
+            print(f"  • {subnet}: {len(devices)} devices ({wireless} wireless, {gateways} gateways)")
+        print(f"  • WiFi Networks: {len(result.wifi_networks)}")
+        if result.topology.get('gateways'):
+            print(f"  • Gateways: {', '.join(result.topology['gateways'])}")
+
+        print(f"\n📁 FILES CREATED (⚠️ Contains sensitive info):")
+        print(f"  • secure_network_diagram.drawio.xml - Secure hierarchical diagram")
+        print(f"  • secure_network_dashboard.html - Secure dashboard with warnings")
+        print(f"  • launch_secure.bat - Launcher with security notice")
+
+        print(f"\n🔒 SECURITY REMINDER:")
+        print(f"  ⚠️  These files contain sensitive network information")
+        print(f"  🔐 Encrypt files before storage or sharing")
+        print(f"  🗑️  Delete when no longer needed")
+        print(f"  👥 Share only with authorized personnel")
+
+        print(f"\n🚀 QUICK START:")
+        print(f"  1. Run 'launch_secure.bat'")
+        print(f"  2. Open the secure diagram in draw.io")
+        print(f"  3. 🔐 ENCRYPT YOUR FILES!")
+
+        if Config.AUTO_OPEN and not args.no_open:
+            print(f"\n🔄 Opening secure dashboard...")
+            dashboard_path = os.path.abspath("secure_network_dashboard.html")
+            file_url = "file:///" + dashboard_path.replace('\\', '/')
+            webbrowser.open(file_url)
+
+    except Exception as e:
+        _fail("Error in secure scan", e)
+
+
+def main_original(args):
+    """
+    The reduced scan kept for compatibility: devices and Wi-Fi only, with no
+    discovery, probing, findings or baseline, under the older file names.
+    """
+    try:
+        print("\n" + "="*80)
+        print("🔒 ORIGINAL NETWORK INTELLIGENCE MAPPER (Secure)")
+        print("="*80)
+
+        if Config.SHOW_ETHICAL_GUIDELINES:
+            LegalDisclaimer.show_ethical_guidelines()
+
+        result = run_scan(discovery=False, probing=False, analysis=False,
+                          on_log=print)
+
+        _write_outputs(result, "network_diagram.drawio.xml",
+                       "network_dashboard.html", "open_dashboard.bat",
+                       LAUNCHER_ORIGINAL)
+
         print("\n" + "="*80)
         print("✅ SECURE SCAN COMPLETE!")
         print("="*80)
         print(f"\n📊 RESULTS:")
-        print(f"  • Scan Time: {scan_duration:.1f} seconds")
-        print(f"  • LAN Devices: {len(lan_devices)}")
-        print(f"  • WiFi Networks: {len(wifi_devices)}")
-        
+        print(f"  • Scan Time: {result.duration:.1f} seconds")
+        print(f"  • LAN Devices: {len(result.lan_devices)}")
+        print(f"  • WiFi Networks: {len(result.wifi_networks)}")
+
         print(f"\n🔒 SECURITY REMINDER:")
         print(f"  ⚠️  Output files contain sensitive network information")
         print(f"  🔐 Encrypt files before storage or sharing")
-        
+
         print(f"\n🚀 QUICK START:")
         print(f"  1. Run 'open_dashboard.bat'")
         print(f"  2. 🔐 Encrypt output files")
-        
+
     except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
+        _fail("Error", e)
 
 
 PROBE_RESULTS_FILE = "probe_results.json"
@@ -606,9 +436,7 @@ def main_probe_only(args):
     except KeyboardInterrupt:
         print("\n\n  Interrupted.")
     except Exception as e:
-        print(f"\n❌ Error in targeted probe: {e}")
-        import traceback
-        traceback.print_exc()
+        _fail("Error in targeted probe", e)
 
 
 def parse_arguments():
@@ -667,6 +495,9 @@ Service probing:
                        help='Do not auto-open dashboard')
     parser.add_argument('--rate-limit', type=float, default=0.01,
                        help='Rate limit delay between probes (default: 0.01)')
+    parser.add_argument('--debug', action='store_true',
+                       help='If the scan fails, show the full Python traceback '
+                            'instead of a one-line error')
 
     scope = parser.add_argument_group('scope: which networks are eligible to sweep')
     scope.add_argument('--scope', choices=['attached', 'routed', 'wide'],
@@ -890,6 +721,7 @@ def main():
             print("  Reset: nothing to remove, already clean")
         print("  Every device will be reported as newly seen this run.")
 
+    Config.SHOW_TRACEBACK = args.debug
     Config.SCAN_MODE = args.mode
     Config.SCAN_SCOPE = args.scope
     Config.PASSIVE_DISCOVERY = not args.no_discovery

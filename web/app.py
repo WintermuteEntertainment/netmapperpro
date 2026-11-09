@@ -58,10 +58,6 @@ app = Flask(__name__)
 
 # ─────────────────────────── scan state ───────────────────────────
 
-class ScanCancelled(Exception):
-    """Raised inside the worker when the user stops a scan."""
-
-
 class Progress:
     """
     Weighted multi-stage progress.
@@ -335,187 +331,56 @@ def run_scan(scan_id, overrides):
     def wait_if_paused():
         pause_event.wait()
 
-    lan, wifi_networks, interfaces, sweep_targets = [], [], [], []
-    topology = {}
-
-    try:
-        apply_config(overrides)
-
-        scanner = mapper.SecureNetworkScanner(
-            on_progress=on_progress,
-            on_log=log,
-            should_stop=should_stop,
-            wait_if_paused=wait_if_paused,
-        )
-
-        mode = mapper.Config.SCAN_MODE
-        if mode in ("all", "lan"):
-            lan = scanner.scan_lan_enhanced()
-        else:
-            scanner.interfaces = mapper.LocalNetworkEnumerator.enumerate()
-
-        interfaces = scanner.interfaces
-        sweep_targets = scanner.sweep_targets
-
-        if should_stop():
-            raise ScanCancelled()
-
-        if mode in ("all", "wifi"):
-            on_progress("wifi", 0, 1)
-            log("Passive wireless survey...")
-            wifi_networks = mapper.SecureWiFiScanner.scan_wifi(
-                our_macs=scanner.our_known_macs(lan)
-            )
-            radios = mapper.SecureWiFiScanner.group_by_radio(wifi_networks)
-            ours_n = sum(1 for n in wifi_networks if n.ownership == "ours")
-            log(f"{len(wifi_networks)} BSSIDs across {len(radios)} radios "
-                f"({ours_n} ours, {len(wifi_networks) - ours_n} nearby)")
-            on_progress("wifi", 1, 1)
-
-        if should_stop():
-            raise ScanCancelled()
-
-        # Announcement listening. Devices name themselves here in ways a ping
-        # never reveals — model, services offered, friendly name.
-        if mapper.Config.PASSIVE_DISCOVERY and mode in ("all", "lan"):
-            on_progress("announce", 0, 1)
-            log("Listening for device announcements...")
-            announced = mapper.PassiveDiscovery.collect(
-                interfaces,
-                duration=mapper.Config.DISCOVERY_DURATION,
-                active=mapper.Config.DISCOVERY_SOLICIT,
-                on_log=log,
-                should_stop=should_stop,
-            )
-            enriched = mapper.PassiveDiscovery.apply(lan, announced)
-            log(f"{len(announced)} host(s) announced, {enriched} enriched")
-
-            known = {d.ip for d in lan}
-            attached = [i.network for i in interfaces if i.network]
-            for ip, info in announced.items():
-                if ip in known or ip in scanner._own_addresses:
-                    continue
-                dev = mapper.NetworkDevice(ip=ip, network_type="lan")
-                dev.hostname = sorted(info["names"])[0] if info["names"] else ""
-                dev.services = sorted(info["services"])
-                dev.discovered_via = "announcement"
-                dev.ownership = scanner._classify_ownership(ip, attached)
-                lan.append(dev)
-                log(f"  + {ip} found via announcement only")
-            # ONVIF / WS-Discovery — cameras answer here and nowhere else.
-            onvif = mapper.WSDiscovery.probe(interfaces, duration=6.0,
-                                             on_log=log, should_stop=should_stop)
-            if onvif:
-                mapper.WSDiscovery.apply(lan, onvif)
-                known = {d.ip for d in lan}
-                for ip, info in onvif.items():
-                    if ip in known or ip in scanner._own_addresses:
-                        continue
-                    dev = mapper.NetworkDevice(ip=ip, network_type="lan")
-                    dev.hostname = info.get("name") or info.get("hardware") or ""
-                    dev.discovered_via = "ws-discovery"
-                    dev.ownership = scanner._classify_ownership(ip, attached)
-                    lan.append(dev)
-                log(f"{len(onvif)} WS-Discovery responder(s)")
-
-            on_progress("announce", 1, 1)
-
-        # The previous scan is loaded before probing rather than after,
-        # because probe_select='new' and the 'known'/'new' network names are
-        # answered from it.
-        baseline, baseline_id = load_previous_results(scan_id)
-
-        # Service probing is its own phase, outside the announcement-listening
-        # block above. It used to be nested inside it, so turning off passive
-        # discovery silently turned off port probing too — two separate
-        # decisions that should not have been welded together.
-        if not mapper.Config.IDENTIFY_SILENT and mode in ("all", "lan"):
-            # Never skip this phase in silence. A depth setting with no probe
-            # behind it reads exactly like a deep scan that ran instantly.
-            log(f"Service probing: OFF (depth would be {mapper.Config.PROBE_DEPTH}). "
-                f"Tick 'Probe devices for open ports' to enable it.")
-
-        if mapper.Config.IDENTIFY_SILENT and mode in ("all", "lan"):
-            on_progress("probe", 0, 1)
-            nets = mapper.ServiceProbe.resolve_nets(
-                mapper.Config.PROBE_NETS,
-                interfaces=interfaces,
-                sweep_targets=sweep_targets,
-                baseline=baseline,
-                on_log=log,
-            )
-            if mapper.Config.PROBE_NETS and not nets:
-                log("No networks matched the probe network filter; nothing probed.")
-            else:
-                n = mapper.ServiceProbe.identify(
-                    lan, on_log=log, should_stop=should_stop,
-                    nets=nets or None, baseline=baseline,
-                    on_progress=on_progress,
-                )
-                log(f"{n} device(s) answered on at least one port")
-            on_progress("probe", 1, 1)
-
-        on_progress("topology", 0, 1)
-        topology = scanner.infer_network_topology(lan)
-        topology["wifi"] = wifi_networks
-        topology["interfaces"] = interfaces
-        topology["sweep_targets"] = sweep_targets
-
-        # Passive analysis, diffed against the previous scan. Costs nothing on
-        # the wire: it reasons over beacons already received and our own
-        # neighbour table.
-        findings = mapper.ThreatAnalyzer.analyze(lan, wifi_networks,
-                                                 interfaces, baseline)
-        # Channel advice uses every BSSID seen across previous scans, because a
-        # single netsh snapshot is often too thin to advise from.
-        findings += mapper.ChannelAnalyzer.findings(
-            wifi_networks, wifi_history(scan_id))
-        findings += mapper.ServiceProbe.findings(lan)
-        if mapper.Config.USE_WATCHLIST:
-            findings += mapper.VendorWatchlist.check(
-                lan, mapper.VendorWatchlist.load(str(APP_DIR / "netmapper_watchlist.json"))
-            )
-            findings.sort(key=lambda f: ({"critical": 0, "warning": 1,
-                                          "info": 2}.get(f.severity, 3), f.category))
-        topology["findings"] = findings
-        if baseline_id:
-            log(f"Compared against previous scan {baseline_id}")
-        crit = sum(1 for f in findings if f.severity == "critical")
-        warn = sum(1 for f in findings if f.severity == "warning")
-        log(f"{len(findings)} finding(s): {crit} critical, {warn} warning")
-        for f in findings:
-            if f.severity in ("critical", "warning"):
-                log(f"  [{f.severity.upper()}] {f.title}")
-        on_progress("topology", 1, 1)
-
-        write_artifacts(scan_dir, lan, wifi_networks, topology,
-                        (datetime.now() - started).total_seconds(), on_progress)
-
-        duration = (datetime.now() - started).total_seconds()
-        results = build_results(lan, wifi_networks, topology, interfaces,
-                                sweep_targets, duration)
+    def save_results(result, duration):
+        results = build_results(result.lan_devices, result.wifi_networks,
+                                result.topology, result.interfaces,
+                                result.sweep_targets, duration)
         with state_lock:
             state["results"] = results
         (scan_dir / "results.json").write_text(
             json.dumps(results, indent=2), encoding="utf-8"
         )
+        return results
+
+    try:
+        apply_config(overrides)
+
+        # The previous scan is the change-detection baseline and also answers
+        # probe_select='new' and the 'known'/'new' network names.
+        baseline, baseline_id = load_previous_results(scan_id)
+        if baseline_id:
+            log(f"Comparing against previous scan {baseline_id}")
+
+        # The scan itself is shared with the command line: see
+        # netmapper/pipeline.py. Only what happens to the result differs.
+        result = mapper.run_scan(
+            baseline=baseline,
+            # Channel advice uses every BSSID seen across recent scans, because
+            # a single netsh snapshot is often too thin to advise from.
+            wifi_history=wifi_history(scan_id),
+            watchlist_rules=mapper.VendorWatchlist.load(
+                str(APP_DIR / "netmapper_watchlist.json")),
+            on_log=log,
+            on_progress=on_progress,
+            should_stop=should_stop,
+            wait_if_paused=wait_if_paused,
+        )
+
+        write_artifacts(scan_dir, result.lan_devices, result.wifi_networks,
+                        result.topology, result.duration, on_progress)
+
+        duration = (datetime.now() - started).total_seconds()
+        results = save_results(result, duration)
         progress.finish()
         publish("progress", {"stage": "done", "pct": 100, "detail": ""})
         log(f"Scan complete in {duration:.1f}s")
         publish("done", {"scan_id": scan_id, "results": results})
 
-    except ScanCancelled:
+    except mapper.ScanCancelled as stopped:
         duration = (datetime.now() - started).total_seconds()
         log("Scan stopped by user — keeping partial results")
         try:
-            topology = topology or {}
-            results = build_results(lan, wifi_networks, topology, interfaces,
-                                    sweep_targets, duration)
-            with state_lock:
-                state["results"] = results
-            (scan_dir / "results.json").write_text(
-                json.dumps(results, indent=2), encoding="utf-8"
-            )
+            results = save_results(stopped.partial, duration)
             publish("stopped", {"scan_id": scan_id, "results": results})
         except Exception:
             publish("stopped", {"scan_id": scan_id, "results": None})
@@ -597,23 +462,6 @@ CONFIG_FIELDS = {
 }
 
 
-def _snapshot_defaults():
-    """
-    The Config values as the scanner module shipped them.
-
-    Taken once at import, before any request can mutate them. This matters
-    because the web app writes straight into mapper.Config, which is module
-    -level state: every setting from every scan persists for the life of the
-    process and leaks into the next one. Without a snapshot there is nothing
-    to restore to.
-    """
-    return {key: getattr(mapper.Config, attr)
-            for key, (attr, _) in CONFIG_FIELDS.items()}
-
-
-CONFIG_DEFAULTS = _snapshot_defaults()
-
-
 def reset_state(clear_config=True, clear_history=False):
     """
     Forget what previous runs left behind.
@@ -629,10 +477,10 @@ def reset_state(clear_config=True, clear_history=False):
     """
     done = []
     if clear_config:
-        for key, value in CONFIG_DEFAULTS.items():
-            attr, _ = CONFIG_FIELDS[key]
-            setattr(mapper.Config, attr,
-                    list(value) if isinstance(value, list) else value)
+        # mapper.Config is module-level state, so settings from one scan
+        # persist for the life of the process. The scanner keeps its own
+        # snapshot of the shipped defaults; see Config.reset().
+        mapper.Config.reset()
         done.append("settings restored to defaults")
 
     removed = 0

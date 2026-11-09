@@ -159,3 +159,24 @@ class Config:
     PROBE_CONNECT_TIMEOUT = 1.0  # seconds to wait for a TCP handshake
     PROBE_BANNER_TIMEOUT = 1.5   # seconds to wait for a service to greet us
     PROBE_MAX_SOCKETS = 128      # concurrent connects in flight, all hosts
+
+    # ===== ERRORS =====
+    # A failed scan always says so and exits with code 1. This decides how much
+    # it says: False prints one line, True (--debug) adds the full traceback.
+    SHOW_TRACEBACK = False
+
+    @classmethod
+    def reset(cls):
+        """
+        Put every setting back to the value it had when the module loaded.
+
+        Settings are class attributes, so in a long-running process (the web
+        app) one scan's choices would otherwise carry into the next.
+        """
+        for name, value in _DEFAULTS.items():
+            setattr(cls, name, list(value) if isinstance(value, list) else value)
+
+
+# Snapshot of the shipped defaults, taken once at import for Config.reset().
+_DEFAULTS = {name: (list(value) if isinstance(value, list) else value)
+             for name, value in vars(Config).items() if name.isupper()}

@@ -15,6 +15,7 @@ from .watchlist import VendorWatchlist
 from .threats import ThreatAnalyzer
 from .dashboard import SecureDashboard
 from .baseline import BASELINE_FILE, load_baseline, save_baseline
+from .pipeline import run_scan, ScanResult, ScanCancelled
 from .cli import main_enhanced, main_original, PROBE_RESULTS_FILE, main_probe_only, parse_arguments, display_legal_info, main
 
 __all__ = [
@@ -43,6 +44,9 @@ __all__ = [
     "BASELINE_FILE",
     "load_baseline",
     "save_baseline",
+    "run_scan",
+    "ScanResult",
+    "ScanCancelled",
     "main_enhanced",
     "main_original",
     "PROBE_RESULTS_FILE",
