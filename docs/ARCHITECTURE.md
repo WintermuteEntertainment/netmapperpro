@@ -49,6 +49,37 @@ Reference written 2026-11-08 for Tim and for future sessions. The "Before the re
 6. **Overlap and leftovers.** `--original` ran a subset of `--enhanced` (enumerate, sweep, Wi-Fi, diagram, dashboard, with different file names and a different `.bat`) and none of discovery, probing, findings or baseline. `SecurityValidator.validate_mac_address` was never called. `RateLimiter` is used once, but that one use paces every ping, so it stays.
 7. **Bugs seen in the 2026-11-08 scans**: sweep-only devices have no MAC, so baseline comparison reports them as gone and then new; Taichi's own Wi-Fi Direct network is labelled a neighbour; vendor names are cut at the first comma; the WSL VM's new MAC on each restart raises a warning.
 
+## After the refactor: the `netmapper/` package (branch `refactor`, 2026-11-08)
+
+`NET_MAPPER_PRO.py` is now a 24-line entry point. It puts its own folder on `sys.path` (`python -I` leaves it off), re-exports everything from the package, and calls `netmapper.cli.main()`.
+
+| Module | Lines | Holds |
+|---|---|---|
+| `config.py` | 182 | `Config`, plus `Config.reset()` and the `SHOW_TRACEBACK` setting |
+| `safety.py` | 203 | `SecurityValidator`, `RateLimiter`, `LegalDisclaimer` |
+| `vendors.py` | 411 | `VendorDatabase`; looks for `oui.csv` in the repo root |
+| `models.py` | 245 | `NetworkDevice`, `WifiNetwork`, `Finding`, `is_virtual_mac()` |
+| `netenum.py` | 464 | `SweepTarget`, `NetworkInterface`, `LocalNetworkEnumerator` |
+| `scanner.py` | 693 | `SecureNetworkScanner` |
+| `wifi.py` | 220 | `SecureWiFiScanner` |
+| `discovery.py` | 628 | `PassiveDiscovery`, `WSDiscovery` |
+| `probe.py` | 835 | `ServiceProbe` |
+| `channels.py` | 204 | `ChannelAnalyzer` |
+| `watchlist.py` | 133 | `VendorWatchlist` |
+| `threats.py` | 318 | `ThreatAnalyzer` |
+| `diagram.py` | 501 | `EnhancedDiagramGenerator` |
+| `dashboard.py` | 488 | `SecureDashboard` |
+| `baseline.py` | 62 | baseline load and save |
+| `pipeline.py` | 237 | `run_scan()`, `ScanResult`, `ScanCancelled`: the scan steps, once |
+| `cli.py` | 814 | the three modes, file output, arguments, `main()` |
+
+How the two front ends use it:
+
+- **CLI:** `main_enhanced()` loads the baseline, calls `run_scan(on_log=print)`, then writes the diagram, dashboard, `.bat` launcher and new baseline, and prints the summary. `main_original()` calls `run_scan()` with discovery, probing and findings off. `main_probe_only()` is unchanged.
+- **Web:** the worker loads the previous scan from `web/scans/`, calls `mapper.run_scan()` with its progress, stop and pause hooks, then writes the artifacts and `results.json` into the scan's folder. A stopped scan raises `ScanCancelled`, which carries the partial result.
+
+Module dependencies run one way, except `netenum` and `scanner`, which use each other. `netenum` only calls `SecureNetworkScanner.run_cmd` inside functions, so its import sits at the bottom of the file, with a comment saying why.
+
 ### Web app before the move
 
 - It imported `NET_MAPPER_PRO.py` from its parent folder, which was `Downloads`, not the repo.
