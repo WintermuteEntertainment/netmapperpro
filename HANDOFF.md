@@ -6,7 +6,7 @@ NetMapperPro scans the local network and produces a draw.io diagram and an HTML 
 
 ## State
 
-- **Repo:** private GitHub repo https://github.com/WintermuteEntertainment/netmapperpro (`origin`). `master` is at `a3a5f58` and pushed. The refactor is on local branch `refactor` (7 commits, `a4a3979` to `ae0d96b`), **not pushed or merged yet**. Don't commit real scan data.
+- **Repo:** private GitHub repo https://github.com/WintermuteEntertainment/netmapperpro (`origin`). `master` is at `a3a5f58` and pushed. The refactor is on local branch `refactor` (`a4a3979` through `43b208e` plus this note), **not pushed or merged yet**. Don't commit real scan data.
 - **Code:** the `netmapper/` package (17 modules). `NET_MAPPER_PRO.py` is now a short entry point that re-exports the package, so old commands and `import NET_MAPPER_PRO` still work.
 - **Web app:** `web/` (Flask, http://127.0.0.1:7890), copied from `Downloads\netmapper-web` on 2026-11-08. It imports the repo scanner. Flask 3.1.3 is installed in Tim's user site-packages, so start it with plain `python web\app.py` or `web\run.bat`, not `python -I`. Its scan history goes in `web/scans/`, which git ignores. It was checked by loading pages with Flask's test client; **no scan has been run through the web app yet.**
 - **Vendor registry:** `oui.csv` in the repo root (IEEE data dated 2026-08-20, 39,979 prefixes, git-ignored), loaded automatically. IEEE's site refuses automated downloads (HTTP 418), so a newer copy has to be downloaded by hand.
